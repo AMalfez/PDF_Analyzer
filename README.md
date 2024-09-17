@@ -7,6 +7,8 @@ Pathway's **LLM (Large Language Model) Apps** allow you to quickly put in produc
 
 This LLM App is connected to GDrive and watch for any changes (upload/delete of PDF's) happening in the folder and accordingly trains the LLM giving the most up-to-date answer based on provided data.
 
+## Demo
+https://www.linkedin.com/posts/md-alfez-mansuri-3aba3224a_ai-rag-pathway-activity-7241884953590824961-MBSw?utm_source=share&utm_medium=member_android
 
 ## How to run the project
 First, clone the repo and **cd to /examples/piplines/gpt_4o_multimodal_rag** and run **docker built -t rag .** then run **docker run -p 8000:8000 rag**. Wait for processes to finish and Make a post request to http://localhost:8000/v1/pw_ai_answer with:
