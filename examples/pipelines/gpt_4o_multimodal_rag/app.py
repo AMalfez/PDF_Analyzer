@@ -1,26 +1,13 @@
 import logging
-import os
-
-# flake8: noqa
-for tesseract_dir in [
-    "/usr/share/tesseract/tessdata/",
-    "/usr/share/tesseract-ocr/5/tessdata",
-]:
-    if os.path.exists(tesseract_dir):
-        os.environ["TESSDATA_PREFIX"] = tesseract_dir  # fix for tesseract ocr
-        break
-
 import sys
-
+import os
 import click
 import pathway as pw
-import pathway.io.fs as io_fs
-import pathway.io.gdrive as io_gdrive
 import yaml
 from dotenv import load_dotenv
+
 from pathway.udfs import DiskCache, ExponentialBackoffRetryStrategy
-from pathway.xpacks.llm import embedders, llms, prompts  # , parsers, splitters
-from pathway.xpacks.llm.parsers import OpenParse
+from pathway.xpacks.llm import embedders, llms, parsers, splitters
 from pathway.xpacks.llm.question_answering import BaseRAGQuestionAnswerer
 from pathway.xpacks.llm.vector_store import VectorStoreServer
 
@@ -29,14 +16,13 @@ from pathway.xpacks.llm.vector_store import VectorStoreServer
 # To use Pathway Community, comment out the line below.
 pw.set_license_key("demo-license-key-with-telemetry")
 
-load_dotenv()
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+load_dotenv()
 
 def data_sources(source_configs) -> list[pw.Table]:
     sources = []
@@ -69,54 +55,42 @@ def data_sources(source_configs) -> list[pw.Table]:
 
     return sources
 
-
 @click.command()
 @click.option("--config_file", default="config.yaml", help="Config file to be used.")
-def run(
-    config_file: str = "config.yaml",
-):
+def run(config_file: str = "config.yaml"):
     with open(config_file) as config_f:
         configuration = yaml.safe_load(config_f)
 
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key is None:
-        print(
-            "Please set OPENAI_API_KEY either as a configuration variable, or in the .env file"
-        )
-        sys.exit(1)
+    LLM_MODEL = configuration["llm_config"]["model"]
 
-    sources = data_sources(configuration["sources"])
+    embedding_model = "avsolatorio/GIST-small-Embedding-v0"
 
-    chat = llms.OpenAIChat(
-        model="gpt-4o",
+    embedder = embedders.SentenceTransformerEmbedder(
+        embedding_model,
+        call_kwargs={"show_progress_bar": False}
+    )
+
+    chat = llms.LiteLLMChat(
+        model=LLM_MODEL,
         retry_strategy=ExponentialBackoffRetryStrategy(max_retries=6),
         cache_strategy=DiskCache(),
-        temperature=0.0,
-    )
-
-    parser = OpenParse()
-    embedder = embedders.OpenAIEmbedder(cache_strategy=DiskCache())
-
-    doc_store = VectorStoreServer(
-        *sources,
-        embedder=embedder,
-        splitter=None,  # OpenParse parser handles the chunking
-        parser=parser,
-    )
-
-    app = BaseRAGQuestionAnswerer(
-        llm=chat,
-        indexer=doc_store,
-        search_topk=6,
-        short_prompt_template=prompts.prompt_qa,
     )
 
     host_config = configuration["host_config"]
     host, port = host_config["host"], host_config["port"]
-    app.build_server(host=host, port=port)
 
-    app.run_server(with_cache=True, terminate_on_error=False)
+    doc_store = VectorStoreServer(
+        *data_sources(configuration["sources"]),
+        embedder=embedder,
+        splitter=splitters.TokenCountSplitter(max_tokens=400),
+        parser=parsers.ParseUnstructured(),
+    )
 
+    rag_app = BaseRAGQuestionAnswerer(llm=chat, indexer=doc_store)
+
+    rag_app.build_server(host=host, port=port)
+
+    rag_app.run_server(with_cache=True, terminate_on_error=False)
 
 if __name__ == "__main__":
     run()
